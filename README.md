@@ -113,3 +113,7 @@ src/main/java/com/moyu/fishbrowser/
 ├── settings/ShortcutField.java   # 快捷键录入控件（点一下，按组合键）
 └── actions/                      # Tools 菜单：显示隐藏 / 交互切换 / 浮窗背景 / 设置
 ```
+
+## 许可证 / License
+
+[MIT](LICENSE) © 2026 ZhangShuRui。可自由使用/修改/分发，**但需保留版权声明和许可证文本**（即注明出处）。

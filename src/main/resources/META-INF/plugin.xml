@@ -1,0 +1,62 @@
+<idea-plugin>
+    <id>com.moyu.fishbrowser</id>
+    <name>Fish Browser 摸鱼浏览器</name>
+    <version>1.0.0</version>
+    <vendor email="13723137996@163.com">ZhangShuRui</vendor>
+
+    <description><![CDATA[
+        <h3>摸鱼浏览器 / Fish Browser</h3>
+        <p>在 IDEA 里浮一个<b>半透明、可调透明度、置顶</b>的浏览器窗口。一个快捷键就能在
+        「网页交互」和「代码交互」之间切换，外加「老板键」一键隐藏。</p>
+        <ul>
+            <li><b>Ctrl + `</b> &nbsp;切换交互模式（网页 ⇄ 代码）。代码模式下窗口变暗 + 鼠标穿透，点击/输入直接落到你的代码上。</li>
+            <li><b>Ctrl + Shift + `</b> &nbsp;老板键：一键显示 / 隐藏。</li>
+            <li>工具栏可调透明度、输入网址、前进后退、置顶开关。</li>
+        </ul>
+        <p>基于 IDE 内置的 JCEF (Chromium) 引擎，使用离屏渲染(OSR)实现整窗透明。</p>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <b>1.0.0</b>
+        <ul>
+            <li>首个版本：半透明置顶 JCEF 浏览器、网页/代码交互模式切换、老板键、透明度滑块。</li>
+        </ul>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionPointName="com.intellij">
+        <applicationConfigurable parentId="tools"
+                                 id="com.moyu.fishbrowser.settings"
+                                 instance="com.moyu.fishbrowser.settings.FishBrowserConfigurable"
+                                 displayName="摸鱼浏览器"/>
+    </extensions>
+
+    <applicationListeners>
+        <listener class="com.moyu.fishbrowser.FishBrowserAppListener"
+                  topic="com.intellij.ide.AppLifecycleListener"/>
+    </applicationListeners>
+
+    <actions>
+        <group id="FishBrowser.ToolsGroup" text="摸鱼浏览器" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="FishBrowser.Toggle"
+                    class="com.moyu.fishbrowser.actions.ToggleOverlayAction"
+                    text="显示 / 隐藏（老板键）"
+                    description="显示或隐藏摸鱼浏览器悬浮窗"/>
+            <action id="FishBrowser.ToggleMode"
+                    class="com.moyu.fishbrowser.actions.ToggleModeAction"
+                    text="切换交互：网页 / 代码"
+                    description="在网页交互和代码交互（鼠标穿透）之间切换"/>
+            <separator/>
+            <action id="FishBrowser.ToggleBackground"
+                    class="com.moyu.fishbrowser.actions.ToggleBackgroundAction"
+                    text="浮窗 ⇄ 背景"
+                    description="把浮窗最小化为背景（盖住代码编辑区），或从背景还原为浮窗"/>
+            <action id="FishBrowser.Settings"
+                    class="com.moyu.fishbrowser.actions.OpenSettingsAction"
+                    text="设置…（含自定义快捷键）"
+                    description="打开摸鱼浏览器设置：显示方式、透明度、跟随最小化、自定义快捷键"/>
+        </group>
+    </actions>
+</idea-plugin>

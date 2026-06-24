@@ -1,0 +1,12 @@
+# Normalize line endings; keep scripts with the endings they need.
+* text=auto
+*.java text
+*.kts text
+*.xml text
+*.md text
+*.properties text
+*.bat text eol=crlf
+gradlew text eol=lf
+*.jar binary
+*.png binary
+*.svg text

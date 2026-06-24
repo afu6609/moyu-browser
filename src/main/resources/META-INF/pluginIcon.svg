@@ -1,0 +1,15 @@
+<svg width="40" height="40" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+  <!-- 摸鱼浏览器 plugin icon: a little fish + window -->
+  <rect x="2" y="6" width="36" height="28" rx="4" fill="#3592C4" opacity="0.18"/>
+  <rect x="2" y="6" width="36" height="7" rx="4" fill="#3592C4" opacity="0.55"/>
+  <circle cx="6.5" cy="9.5" r="1.2" fill="#fff"/>
+  <circle cx="10.5" cy="9.5" r="1.2" fill="#fff"/>
+  <circle cx="14.5" cy="9.5" r="1.2" fill="#fff"/>
+  <!-- fish body -->
+  <path d="M10 24 C15 16, 27 16, 31 24 C27 32, 15 32, 10 24 Z" fill="#3592C4"/>
+  <!-- tail -->
+  <path d="M10 24 L4 19 L6 24 L4 29 Z" fill="#2B7CB3"/>
+  <!-- eye -->
+  <circle cx="26.5" cy="22" r="1.7" fill="#fff"/>
+  <circle cx="26.9" cy="22" r="0.9" fill="#1b1b1b"/>
+</svg>

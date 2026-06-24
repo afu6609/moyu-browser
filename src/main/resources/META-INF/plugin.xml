@@ -1,13 +1,12 @@
 <idea-plugin>
     <id>com.moyu.fishbrowser</id>
-    <name>Fish Browser 摸鱼浏览器</name>
+    <name>Fish Browser</name>
     <version>1.0.0</version>
     <vendor email="wuyongyuan343@gmail.com" url="https://github.com/afu6609/moyu-browser">ZhangShuRui</vendor>
 
-    <description><![CDATA[
-        <h3>Fish Browser / 摸鱼浏览器</h3>
-        <p><b>A translucent, always-on-top web browser overlaid on your IDE</b>, powered by the bundled
-        JCEF (Chromium). Read docs or browse while you work, then hit the boss key to hide it instantly.</p>
+    <description><![CDATA[Fish Browser is a translucent, always-on-top web browser overlaid on your IDE, powered by the bundled JCEF (Chromium). Read docs or just browse while you work, then press the "boss key" to hide it instantly.
+        <br/><br/>
+        <b>Features</b>
         <ul>
             <li><b>Two modes</b> — a draggable floating window, or a "background" that covers only the
             current editor area. Toggle with one shortcut.</li>
@@ -16,20 +15,20 @@
             <li><b>Boss key</b> to show/hide instantly. All shortcuts are customizable in Settings.</li>
             <li><b>Follows the IDE</b> — hides on minimize / when the IDE isn't focused; links open in place.</li>
         </ul>
-        <p><b>Note:</b> the IDE's bundled Chromium ships without proprietary codecs (H.264/AAC), so many
+        <b>Note:</b> the IDE's bundled Chromium ships without proprietary codecs (H.264/AAC), so many
         video sites (e.g. Bilibili) report "unsupported"; sites using VP9/WebM (e.g. YouTube) work.
-        Best for text / reading. Mouse click-through is Windows-only.</p>
-        <hr/>
-        <p><b>中文：</b>在 IDE 上浮一个<b>半透明、可调透明度、可置顶</b>的浏览器（基于 IDE 内置的 JCEF/Chromium）。
-        一边写代码一边看，老板来了一键隐藏。</p>
+        Best for text / reading. Mouse click-through is Windows-only.
+        <br/><br/>
+        <b>中文</b>：在 IDE 上浮一个半透明、可调透明度、可置顶的浏览器（基于 IDE 内置的 JCEF/Chromium）。
+        一边写代码一边看，老板来了一键隐藏。
         <ul>
             <li><b>两种形态</b>：可拖动的浮窗，或只盖住当前编辑区的「背景」，一个快捷键互转。</li>
             <li><b>网页 / 代码切换</b>：一键在「用网页」和「写代码」间切；代码模式下窗口变暗、鼠标穿透到编辑器（仅 Windows）。</li>
             <li><b>老板键</b>一键隐藏；所有快捷键都能在设置里自定义。</li>
             <li><b>跟随 IDE</b>：最小化 / 失焦自动隐藏；链接原地打开。</li>
         </ul>
-        <p><b>注意：</b>IDE 自带的 Chromium 没有商业编解码器（H.264/AAC），B 站等用 H.264 的视频站会提示「不支持」，
-        YouTube 等 VP9/WebM 站可放；更适合看文字/阅读。鼠标穿透仅 Windows。</p>
+        <b>注意</b>：IDE 自带的 Chromium 没有商业编解码器（H.264/AAC），B 站等用 H.264 的视频站会提示「不支持」，
+        YouTube 等 VP9/WebM 站可放；更适合看文字/阅读。鼠标穿透仅 Windows。
     ]]></description>
 
     <change-notes><![CDATA[

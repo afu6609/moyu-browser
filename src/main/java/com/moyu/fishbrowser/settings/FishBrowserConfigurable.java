@@ -15,6 +15,7 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.ButtonGroup;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
@@ -32,9 +33,11 @@ public final class FishBrowserConfigurable implements Configurable {
     private final JBRadioButton coverRb = new JBRadioButton("背景　— 盖住当前代码编辑区，变暗，可切鼠标穿透");
 
     private final JBTextField homeUrlField = new JBTextField();
+    private final JComboBox<String> searchEngineCombo = new JComboBox<>(new String[]{"Bing", "Google", "Baidu"});
     private final JSpinner opacitySpinner = spinner(10, 100, 1);
     private final JSpinner codeOpacitySpinner = spinner(10, 100, 1);
     private final JSpinner coverOpacitySpinner = spinner(10, 100, 1);
+    private final JSpinner zoomSpinner = spinner(25, 300, 5);
     private final JBCheckBox hideWhenInactiveCb = new JBCheckBox("IDE 不在前台时自动隐藏（切到别的程序/最小化时藏起，回到 IDE 再出现）");
     private final JBCheckBox alwaysOnTopCb = new JBCheckBox("全局置顶（钉在所有窗口最前；关掉则只盖住 IDE）");
     private final JBCheckBox rememberBoundsCb = new JBCheckBox("记住浮窗的位置和大小");
@@ -71,9 +74,11 @@ public final class FishBrowserConfigurable implements Configurable {
                 .addComponent(coverRb)
                 .addSeparator()
                 .addLabeledComponent("主页网址", homeUrlField)
+                .addLabeledComponent("地址栏搜索引擎", searchEngineCombo)
                 .addLabeledComponent("网页模式透明度 %", opacitySpinner)
                 .addLabeledComponent("浮窗·代码模式透明度 %（穿透时）", codeOpacitySpinner)
                 .addLabeledComponent("背景模式透明度 %", coverOpacitySpinner)
+                .addLabeledComponent("页面缩放 %", zoomSpinner)
                 .addSeparator()
                 .addComponent(hideWhenInactiveCb)
                 .addComponent(alwaysOnTopCb)
@@ -109,6 +114,11 @@ public final class FishBrowserConfigurable implements Configurable {
         }
     }
 
+    private String engineValue() {
+        Object v = searchEngineCombo.getSelectedItem();
+        return v == null ? "Bing" : v.toString();
+    }
+
     private static int intValue(JSpinner s) {
         return ((Number) s.getValue()).intValue();
     }
@@ -118,9 +128,11 @@ public final class FishBrowserConfigurable implements Configurable {
         FishBrowserSettings s = FishBrowserSettings.getInstance();
         return selectedMode() != s.displayMode()
                 || !homeUrlField.getText().trim().equals(s.homeUrl)
+                || !engineValue().equals(s.searchEngine)
                 || intValue(opacitySpinner) != s.opacity
                 || intValue(codeOpacitySpinner) != s.codeModeOpacity
                 || intValue(coverOpacitySpinner) != s.coverOpacity
+                || intValue(zoomSpinner) != s.zoomPercent
                 || hideWhenInactiveCb.isSelected() != s.hideWhenIdeInactive
                 || alwaysOnTopCb.isSelected() != s.alwaysOnTop
                 || rememberBoundsCb.isSelected() != s.rememberBounds
@@ -140,9 +152,11 @@ public final class FishBrowserConfigurable implements Configurable {
         if (!url.isEmpty()) {
             s.homeUrl = url;
         }
+        s.searchEngine = engineValue();
         s.opacity = intValue(opacitySpinner);
         s.codeModeOpacity = intValue(codeOpacitySpinner);
         s.coverOpacity = intValue(coverOpacitySpinner);
+        s.zoomPercent = intValue(zoomSpinner);
         s.hideWhenIdeInactive = hideWhenInactiveCb.isSelected();
         s.alwaysOnTop = alwaysOnTopCb.isSelected();
         s.rememberBounds = rememberBoundsCb.isSelected();
@@ -154,6 +168,7 @@ public final class FishBrowserConfigurable implements Configurable {
         s.keyBossMods = bossKey.getModifiersValue();
         // Re-apply presentation so a mode/opacity change takes effect immediately.
         FishBrowserService.getInstance().applyDisplayMode();
+        FishBrowserService.getInstance().refreshZoom();
     }
 
     @Override
@@ -161,9 +176,11 @@ public final class FishBrowserConfigurable implements Configurable {
         FishBrowserSettings s = FishBrowserSettings.getInstance();
         setSelectedMode(s.displayMode());
         homeUrlField.setText(s.homeUrl);
+        searchEngineCombo.setSelectedItem(s.searchEngine);
         opacitySpinner.setValue(s.opacity);
         codeOpacitySpinner.setValue(s.codeModeOpacity);
         coverOpacitySpinner.setValue(s.coverOpacity);
+        zoomSpinner.setValue(s.zoomPercent);
         hideWhenInactiveCb.setSelected(s.hideWhenIdeInactive);
         alwaysOnTopCb.setSelected(s.alwaysOnTop);
         rememberBoundsCb.setSelected(s.rememberBounds);

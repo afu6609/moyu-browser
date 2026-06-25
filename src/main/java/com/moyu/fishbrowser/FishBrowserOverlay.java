@@ -9,6 +9,7 @@ import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.handler.CefDisplayHandlerAdapter;
 import org.cef.handler.CefLifeSpanHandlerAdapter;
+import org.cef.handler.CefLoadHandlerAdapter;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -20,9 +21,12 @@ import javax.swing.JPanel;
 import javax.swing.JSlider;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
+import java.awt.AWTEvent;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -33,8 +37,10 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.Window;
+import java.awt.event.AWTEventListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseWheelEvent;
 
 /**
  * The browser window (off-screen-rendered JCEF so window opacity applies to the web content).
@@ -63,10 +69,18 @@ final class FishBrowserOverlay {
     private final JButton modeButton = new JButton();
     private final JButton pinButton = new JButton();
     private final JButton minButton = new JButton();
+    private final JButton backButton = new JButton("◀");
+    private final JButton forwardButton = new JButton("▶");
+    private final JButton reloadButton = new JButton("⟳");
+    private final JLabel zoomLabel = new JLabel();
+    private final JPanel bookmarkBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
     private final JSlider opacitySlider;
 
     private Mode mode;
     private boolean cover;
+    private boolean loading;
+    private String currentTitle = "";
+    private AWTEventListener wheelListener;
 
     FishBrowserOverlay(FishBrowserService parent) {
         this.service = parent;
@@ -104,6 +118,11 @@ final class FishBrowserOverlay {
                     }
                 });
             }
+
+            @Override
+            public void onTitleChange(CefBrowser b, String title) {
+                currentTitle = title == null ? "" : title;
+            }
         }, browser.getCefBrowser());
 
         // Open target=_blank / window.open links in THIS browser instead of a popup window.
@@ -117,10 +136,31 @@ final class FishBrowserOverlay {
             }
         }, browser.getCefBrowser());
 
+        // Re-apply page zoom after each navigation (some pages reset it on load).
+        browser.getJBCefClient().addLoadHandler(new CefLoadHandlerAdapter() {
+            @Override
+            public void onLoadEnd(CefBrowser b, CefFrame frame, int httpStatusCode) {
+                try {
+                    b.setZoomLevel(FishBrowserSettings.zoomLevelFor(settings.zoomPercent));
+                } catch (Throwable ignore) {
+                    // ignored
+                }
+            }
+
+            @Override
+            public void onLoadingStateChange(CefBrowser b, boolean isLoading, boolean canGoBack, boolean canGoForward) {
+                ApplicationManager.getApplication().invokeLater(() -> updateNavState(isLoading, canGoBack, canGoForward));
+            }
+        }, browser.getCefBrowser());
+
         updateModeButton();
         updatePinButton();
         updateMinButton();
+        updateZoomLabel();
+        updateNavState(false, false, false);
         applyOpacity(currentModeOpacity());
+        installZoomWheel();
+        rebuildBookmarkBar();
     }
 
     /** The IDE frame this overlay is owned by is still alive (false → the project window was closed). */
@@ -150,7 +190,6 @@ final class FishBrowserOverlay {
 
     /** Borderless window covering {@code bounds} ("背景"); starts as a dimmed, click-through backdrop. */
     void showCover(Rectangle bounds) {
-        LOG.warn("[FishBrowser] showCover requested bounds=" + bounds + " wasVisible=" + window.isVisible());
         cover = true;
         applyBorder();
         updateMinButton();
@@ -165,6 +204,19 @@ final class FishBrowserOverlay {
         // Enter visibly & interactively so you can SEE the background appear; Ctrl+` toggles 穿透.
         setMode(Mode.WEB);
         window.repaint();
+    }
+
+    /** Re-fit the cover to the (possibly resized) editor bounds; called by the service tracker. */
+    void refitCoverBounds(Rectangle target) {
+        if (!cover || target == null || target.width < 50 || target.height < 50 || !window.isVisible()) {
+            return;
+        }
+        Rectangle cur = window.getBounds();
+        if (Math.abs(cur.x - target.x) > 2 || Math.abs(cur.y - target.y) > 2
+                || Math.abs(cur.width - target.width) > 2 || Math.abs(cur.height - target.height) > 2) {
+            window.setBounds(target);
+            window.validate();
+        }
     }
 
     boolean isShowing() {
@@ -187,6 +239,10 @@ final class FishBrowserOverlay {
 
     void disposeOverlay() {
         saveBounds();
+        if (wheelListener != null) {
+            Toolkit.getDefaultToolkit().removeAWTEventListener(wheelListener);
+            wheelListener = null;
+        }
         try {
             browser.dispose();
         } catch (Throwable t) {
@@ -212,9 +268,6 @@ final class FishBrowserOverlay {
             window.toFront();
             window.requestFocus();
         }
-        LOG.warn("[FishBrowser] setMode " + m + " cover=" + cover + " opacity=" + op
-                + " clickThrough=" + codeThrough + " ctOk=" + ct
-                + " bounds=" + window.getBounds() + " visible=" + window.isVisible());
         updateModeButton();
     }
 
@@ -243,12 +296,22 @@ final class FishBrowserOverlay {
         grip.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 4));
         installDrag(grip);
 
+        configBtn(backButton, "后退", e -> browser.getCefBrowser().goBack());
+        configBtn(forwardButton, "前进", e -> browser.getCefBrowser().goForward());
+        configBtn(reloadButton, "刷新", e -> {
+            if (loading) {
+                browser.getCefBrowser().stopLoad();
+            } else {
+                browser.getCefBrowser().reload();
+            }
+        });
+
         JPanel nav = new JPanel(new FlowLayout(FlowLayout.LEFT, 2, 0));
         nav.setOpaque(false);
         nav.add(grip);
-        nav.add(button("◀", "后退", e -> browser.getCefBrowser().goBack()));
-        nav.add(button("▶", "前进", e -> browser.getCefBrowser().goForward()));
-        nav.add(button("⟳", "刷新", e -> browser.getCefBrowser().reload()));
+        nav.add(backButton);
+        nav.add(forwardButton);
+        nav.add(reloadButton);
         nav.add(button("⌂", "主页", e -> browser.loadURL(settings.homeUrl)));
 
         urlField.setText(startUrl());
@@ -262,12 +325,17 @@ final class FishBrowserOverlay {
             }
         });
 
-        // Row 1: nav | URL (full width) | Go
+        JPanel row1east = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
+        row1east.setOpaque(false);
+        row1east.add(button("☆", "收藏当前页", e -> addCurrentBookmark()));
+        row1east.add(button("Go", "打开网址", e -> navigate()));
+
+        // Row 1: nav | URL (full width) | ☆ + Go
         JPanel row1 = new JPanel(new BorderLayout(4, 0));
         row1.setOpaque(false);
         row1.add(nav, BorderLayout.WEST);
         row1.add(urlField, BorderLayout.CENTER);
-        row1.add(button("Go", "打开网址", e -> navigate()), BorderLayout.EAST);
+        row1.add(row1east, BorderLayout.EAST);
 
         // Row 2: opacity slider | minimize/restore + mode / pin / hide
         JLabel opLabel = new JLabel("透明度");
@@ -286,6 +354,22 @@ final class FishBrowserOverlay {
         left2.setOpaque(false);
         left2.add(opLabel);
         left2.add(opacitySlider);
+
+        JLabel zoomTitle = new JLabel("缩放");
+        zoomTitle.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 2));
+        zoomLabel.setToolTipText("点击重置为 100%");
+        zoomLabel.setBorder(BorderFactory.createEmptyBorder(0, 3, 0, 3));
+        zoomLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        zoomLabel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                applyZoom(100);
+            }
+        });
+        left2.add(zoomTitle);
+        left2.add(button("－", "缩小", e -> applyZoom(settings.zoomPercent - 10)));
+        left2.add(zoomLabel);
+        left2.add(button("＋", "放大", e -> applyZoom(settings.zoomPercent + 10)));
 
         minButton.setMargin(new Insets(2, 6, 2, 6));
         minButton.setFocusable(false);
@@ -315,11 +399,14 @@ final class FishBrowserOverlay {
         row2.add(left2, BorderLayout.WEST);
         row2.add(right2, BorderLayout.EAST);
 
+        bookmarkBar.setOpaque(false);
+
         JPanel bar = new JPanel();
         bar.setLayout(new BoxLayout(bar, BoxLayout.Y_AXIS));
         bar.setBorder(BorderFactory.createEmptyBorder(3, 3, 3, 3));
         bar.add(row1);
         bar.add(row2);
+        bar.add(bookmarkBar);
         installDrag(bar);
         return bar;
     }
@@ -374,6 +461,22 @@ final class FishBrowserOverlay {
             minButton.setText("变背景");
             minButton.setToolTipText("最小化为背景：铺满 IDE、变暗、可切鼠标穿透 (Ctrl+Alt+`)");
         }
+    }
+
+    /** Set the web page zoom (percent); persists and updates the label. */
+    void applyZoom(int pct) {
+        int z = FishBrowserSettings.clampZoom(pct);
+        settings.zoomPercent = z;
+        try {
+            browser.getCefBrowser().setZoomLevel(FishBrowserSettings.zoomLevelFor(z));
+        } catch (Throwable t) {
+            LOG.warn("setZoomLevel failed", t);
+        }
+        updateZoomLabel();
+    }
+
+    private void updateZoomLabel() {
+        zoomLabel.setText(settings.zoomPercent + "%");
     }
 
     // ----- drag / resize -----
@@ -437,15 +540,134 @@ final class FishBrowserOverlay {
         if (text.isEmpty()) {
             return;
         }
-        if (!text.contains("://")) {
-            if (text.contains(".") && !text.contains(" ")) {
-                text = "https://" + text;
-            } else {
-                text = "https://www.bing.com/search?q="
-                        + java.net.URLEncoder.encode(text, java.nio.charset.StandardCharsets.UTF_8);
-            }
+        browser.loadURL(toUrlOrSearch(text));
+    }
+
+    /** A full URL is opened as-is; a bare domain gets https://; anything else is a search query. */
+    private String toUrlOrSearch(String text) {
+        if (text.contains("://")) {
+            return text;
         }
-        browser.loadURL(text);
+        boolean looksLikeUrl = !text.contains(" ")
+                && (text.startsWith("localhost") || (text.contains(".") && !text.endsWith(".")));
+        return looksLikeUrl ? "https://" + text : FishBrowserSettings.searchUrl(settings.searchEngine, text);
+    }
+
+    private JButton configBtn(JButton b, String tip, java.awt.event.ActionListener al) {
+        b.setMargin(new Insets(2, 6, 2, 6));
+        b.setFocusable(false);
+        b.setToolTipText(tip);
+        if (al != null) {
+            b.addActionListener(al);
+        }
+        return b;
+    }
+
+    /** Update back/forward enabled state and the reload⇄stop button from a load-state change. */
+    private void updateNavState(boolean isLoading, boolean canGoBack, boolean canGoForward) {
+        loading = isLoading;
+        backButton.setEnabled(canGoBack);
+        forwardButton.setEnabled(canGoForward);
+        reloadButton.setText(isLoading ? "✕" : "⟳");
+        reloadButton.setToolTipText(isLoading ? "停止加载" : "刷新");
+    }
+
+    /**
+     * Ctrl+wheel = zoom; Ctrl+Shift+wheel = opacity. Uses a Toolkit-level listener because the OSR
+     * browser component does not deliver wheel events to a Swing MouseWheelListener on getComponent().
+     */
+    private void installZoomWheel() {
+        wheelListener = event -> {
+            if (!(event instanceof MouseWheelEvent)) {
+                return;
+            }
+            MouseWheelEvent e = (MouseWheelEvent) event;
+            if (!e.isControlDown() || e.isConsumed() || !window.isVisible()) {
+                return;
+            }
+            Component c = e.getComponent();
+            if (c == null || !SwingUtilities.isDescendingFrom(c, window)) {
+                return;
+            }
+            int up = e.getWheelRotation() < 0 ? 1 : -1;
+            if (e.isShiftDown()) {
+                adjustOpacityBy(up * 5);
+            } else {
+                applyZoom(settings.zoomPercent + up * 10);
+            }
+            e.consume();
+        };
+        Toolkit.getDefaultToolkit().addAWTEventListener(wheelListener, AWTEvent.MOUSE_WHEEL_EVENT_MASK);
+    }
+
+    private void adjustOpacityBy(int delta) {
+        if (cover) {
+            settings.coverOpacity = FishBrowserSettings.clampOpacity(settings.coverOpacity + delta);
+        } else if (mode == Mode.WEB) {
+            settings.opacity = FishBrowserSettings.clampOpacity(settings.opacity + delta);
+            opacitySlider.setValue(settings.opacity);
+        } else {
+            settings.codeModeOpacity = FishBrowserSettings.clampOpacity(settings.codeModeOpacity + delta);
+        }
+        applyOpacity(currentModeOpacity());
+    }
+
+    // ----- bookmarks -----
+
+    private void rebuildBookmarkBar() {
+        bookmarkBar.removeAll();
+        for (String bm : settings.bookmarks) {
+            String[] parts = bm.split("\t", 2);
+            String name = parts.length > 0 ? parts[0] : bm;
+            String url = parts.length > 1 ? parts[1] : "";
+            JButton b = new JButton(ellipsize(name, 18));
+            b.setMargin(new Insets(1, 6, 1, 6));
+            b.setFocusable(false);
+            b.setToolTipText("<html>" + escapeHtml(url) + "<br>左键打开 · 右键删除</html>");
+            b.addActionListener(e -> browser.loadURL(url));
+            b.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    if (javax.swing.SwingUtilities.isRightMouseButton(e)) {
+                        removeBookmark(bm);
+                    }
+                }
+            });
+            bookmarkBar.add(b);
+        }
+        bookmarkBar.revalidate();
+        bookmarkBar.repaint();
+    }
+
+    private void addCurrentBookmark() {
+        String url = browser.getCefBrowser().getURL();
+        if (url == null || url.isBlank()) {
+            url = settings.lastUrl;
+        }
+        if (url == null || url.isBlank()) {
+            return;
+        }
+        String name = (currentTitle != null && !currentTitle.isBlank()) ? currentTitle : url;
+        final String u = url;
+        settings.bookmarks.removeIf(s -> s.endsWith("\t" + u));
+        settings.bookmarks.add(name.replace("\t", " ") + "\t" + u);
+        rebuildBookmarkBar();
+    }
+
+    private void removeBookmark(String entry) {
+        settings.bookmarks.remove(entry);
+        rebuildBookmarkBar();
+    }
+
+    private static String ellipsize(String s, int max) {
+        if (s == null) {
+            return "";
+        }
+        return s.length() <= max ? s : s.substring(0, max - 1) + "…";
+    }
+
+    private static String escapeHtml(String s) {
+        return s == null ? "" : s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private String startUrl() {

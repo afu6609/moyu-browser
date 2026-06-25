@@ -37,6 +37,7 @@ public final class FishBrowserService implements Disposable {
     private boolean hotkeysInstalled;
     private PropertyChangeListener focusWatcher;
     private Timer hideDebounce;
+    private Timer coverTracker;
     private boolean hiddenAuto;
     private FishBrowserOverlay overlay;
     private boolean active;
@@ -96,6 +97,27 @@ public final class FishBrowserService implements Disposable {
         }
     }
 
+    /** While 背景 is showing, keep it aligned to the (possibly resized) editor pane. */
+    private void startCoverTracker() {
+        if (coverTracker == null) {
+            coverTracker = new Timer(300, e -> {
+                if (settings().displayMode() != DisplayMode.COVER) {
+                    stopCoverTracker();
+                } else if (active && !hiddenAuto && overlay != null && overlay.isShowing()) {
+                    overlay.refitCoverBounds(coverBounds());
+                }
+            });
+            coverTracker.setRepeats(true);
+        }
+        coverTracker.start();
+    }
+
+    private void stopCoverTracker() {
+        if (coverTracker != null) {
+            coverTracker.stop();
+        }
+    }
+
     private FishBrowserSettings settings() {
         return FishBrowserSettings.getInstance();
     }
@@ -145,6 +167,15 @@ public final class FishBrowserService implements Disposable {
         onEdt(() -> {
             active = true;
             applyCurrentMode();
+        });
+    }
+
+    /** Re-apply the persisted page zoom to the live browser (used by the settings page). */
+    public void refreshZoom() {
+        onEdt(() -> {
+            if (overlay != null) {
+                overlay.applyZoom(settings().zoomPercent);
+            }
         });
     }
 
@@ -232,16 +263,17 @@ public final class FishBrowserService implements Disposable {
             return;
         }
         if (settings().displayMode() == DisplayMode.COVER) {
-            Rectangle b = coverBounds();
-            LOG.warn("[FishBrowser] applyCurrentMode COVER -> bounds=" + b);
-            o.showCover(b);
+            o.showCover(coverBounds());
+            startCoverTracker();
         } else {
+            stopCoverTracker();
             o.showFloating();
         }
     }
 
     private void teardownPresentation() {
         cancelAutoHide();
+        stopCoverTracker();
         hiddenAuto = false;
         if (overlay != null) {
             overlay.hideOverlay();
@@ -270,16 +302,13 @@ public final class FishBrowserService implements Disposable {
                     Point loc = comp.getLocationOnScreen();
                     Dimension size = comp.getSize();
                     if (size.width > 50 && size.height > 50) {
-                        Rectangle r = new Rectangle(loc, size);
-                        LOG.warn("[FishBrowser] active editor bounds (" + p.getName() + ") = " + r);
-                        return r;
+                        return new Rectangle(loc, size);
                     }
                 } catch (Throwable ignore) {
                     // component not realized yet
                 }
             }
         }
-        LOG.warn("[FishBrowser] no showing editor found; falling back to frame bounds");
         return null;
     }
 
@@ -299,6 +328,7 @@ public final class FishBrowserService implements Disposable {
     public void dispose() {
         hotkeys.uninstall();
         cancelAutoHide();
+        stopCoverTracker();
         if (focusWatcher != null) {
             KeyboardFocusManager.getCurrentKeyboardFocusManager()
                     .removePropertyChangeListener("activeWindow", focusWatcher);

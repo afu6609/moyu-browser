@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.moyu.fishbrowser</id>
     <name>Fish Browser</name>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <vendor email="wuyongyuan343@gmail.com" url="https://github.com/afu6609/moyu-browser">ZhangShuRui</vendor>
 
     <description><![CDATA[Fish Browser is a translucent, always-on-top web browser overlaid on your IDE, powered by the bundled JCEF (Chromium). Read docs or just browse while you work, then press the "boss key" to hide it instantly.
@@ -32,9 +32,17 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <b>1.1.0</b>
+        <ul>
+            <li>背景模式自动跟随编辑器大小 / 位置变化。</li>
+            <li>页面缩放（工具栏 按钮 / Ctrl+滚轮 / 设置页）；Ctrl+Shift+滚轮 调透明度。</li>
+            <li>加载状态：刷新 ⇄ 停止按钮、前进 / 后退按钮自动置灰。</li>
+            <li>地址栏可选搜索引擎（Bing / Google / 百度）+ 智能识别网址。</li>
+            <li>书签栏：☆ 收藏当前页，左键打开、右键删除。</li>
+        </ul>
         <b>1.0.0</b>
         <ul>
-            <li>首个版本：半透明置顶 JCEF 浏览器、网页/代码交互模式切换、老板键、透明度滑块。</li>
+            <li>首个版本：半透明 JCEF 浏览器、浮窗 / 背景、网页 / 代码交互切换、老板键、自定义快捷键、跟随 IDE。</li>
         </ul>
     ]]></change-notes>
 

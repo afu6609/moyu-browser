@@ -10,6 +10,10 @@ import org.jetbrains.annotations.Nullable;
 
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Persisted plugin settings (application level). Stored in fishBrowser.xml.
@@ -24,6 +28,12 @@ public final class FishBrowserSettings implements PersistentStateComponent<FishB
     /** Page opened the very first time, and via the Home button. */
     public String homeUrl = "https://www.bing.com/";
 
+    /** Search engine for non-URL address-bar input: Bing / Google / Baidu. */
+    public String searchEngine = "Bing";
+
+    /** Bookmarks, each stored as "name\turl". */
+    public List<String> bookmarks = new ArrayList<>();
+
     /** Last visited URL, restored on next open. */
     public String lastUrl = "";
 
@@ -35,6 +45,9 @@ public final class FishBrowserSettings implements PersistentStateComponent<FishB
 
     /** Opacity used in 背景(COVER) mode while it sits as a backdrop, percent 10..100. */
     public int coverOpacity = 50;
+
+    /** Web page zoom, percent 25..300 (100 = normal). */
+    public int zoomPercent = 100;
 
     /** Global always-on-top (above ALL apps). Off = above the owning IDE only (lets other windows cover it). */
     public boolean alwaysOnTop = false;
@@ -85,5 +98,26 @@ public final class FishBrowserSettings implements PersistentStateComponent<FishB
 
     public static int clampOpacity(int pct) {
         return Math.max(10, Math.min(100, pct));
+    }
+
+    public static int clampZoom(int pct) {
+        return Math.max(25, Math.min(300, pct));
+    }
+
+    /** Build a search URL for the given engine + query. */
+    public static String searchUrl(String engine, String query) {
+        String q = URLEncoder.encode(query, StandardCharsets.UTF_8);
+        if ("Google".equalsIgnoreCase(engine)) {
+            return "https://www.google.com/search?q=" + q;
+        }
+        if ("Baidu".equalsIgnoreCase(engine)) {
+            return "https://www.baidu.com/s?wd=" + q;
+        }
+        return "https://www.bing.com/search?q=" + q;
+    }
+
+    /** Convert a zoom percent to a CEF zoom level (zoomFactor = 1.2^level). */
+    public static double zoomLevelFor(int pct) {
+        return Math.log(clampZoom(pct) / 100.0) / Math.log(1.2);
     }
 }

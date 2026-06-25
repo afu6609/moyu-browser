@@ -34,15 +34,15 @@
     <change-notes><![CDATA[
         <b>1.1.0</b>
         <ul>
-            <li>背景模式自动跟随编辑器大小 / 位置变化。</li>
-            <li>页面缩放（工具栏 按钮 / Ctrl+滚轮 / 设置页）；Ctrl+Shift+滚轮 调透明度。</li>
-            <li>加载状态：刷新 ⇄ 停止按钮、前进 / 后退按钮自动置灰。</li>
-            <li>地址栏可选搜索引擎（Bing / Google / 百度）+ 智能识别网址。</li>
-            <li>书签栏：☆ 收藏当前页，左键打开、右键删除。</li>
+            <li><b>Background auto-fits the editor</b> — it now follows your editor pane as you resize the IDE, toggle tool windows, or split editors. 背景自动跟随当前编辑器（拉伸 IDE / 开关工具窗 / 分屏都会重贴）。</li>
+            <li><b>Page zoom</b> — from the toolbar, with Ctrl+Wheel, or in Settings; Ctrl+Shift+Wheel adjusts opacity. 页面缩放（工具栏 / Ctrl+滚轮 / 设置）；Ctrl+Shift+滚轮 调透明度。</li>
+            <li><b>Loading state</b> — Reload becomes Stop while a page loads; Back/Forward disable when unavailable. 加载状态：刷新 ⇄ 停止、前进/后退自动置灰。</li>
+            <li><b>Search engine choice</b> — Bing / Google / Baidu for address-bar searches; bare domains open directly. 地址栏可选搜索引擎 + 智能识别网址。</li>
+            <li><b>Bookmarks bar</b> — star the current page; left-click to open, right-click to remove. 书签栏：☆ 收藏，左键打开、右键删除。</li>
         </ul>
         <b>1.0.0</b>
         <ul>
-            <li>首个版本：半透明 JCEF 浏览器、浮窗 / 背景、网页 / 代码交互切换、老板键、自定义快捷键、跟随 IDE。</li>
+            <li>First release — translucent JCEF browser overlay; floating / background modes; web⇄code click-through; boss key; customizable hotkeys; follows the IDE. 首个版本。</li>
         </ul>
     ]]></change-notes>
 

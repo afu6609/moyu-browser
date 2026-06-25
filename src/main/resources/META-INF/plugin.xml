@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.moyu.fishbrowser</id>
     <name>Fish Browser</name>
-    <version>1.1.0</version>
+    <version>1.2.0</version>
     <vendor email="wuyongyuan343@gmail.com" url="https://github.com/afu6609/moyu-browser">ZhangShuRui</vendor>
 
     <description><![CDATA[Fish Browser is a translucent, always-on-top web browser overlaid on your IDE, powered by the bundled JCEF (Chromium). Read docs or just browse while you work, then press the "boss key" to hide it instantly.
@@ -11,7 +11,8 @@
             <li><b>Two modes</b> — a draggable floating window, or a "background" that covers only the
             current editor area. Toggle with one shortcut.</li>
             <li><b>Web vs. code</b> — one key switches between using the page and writing code; in code
-            mode the window dims and the mouse clicks through to your editor (Windows only).</li>
+            mode the mouse clicks through to your editor (optional dimming, off by default; Windows only).</li>
+            <li><b>Zen mode</b> — a hotkey hides the toolbar, address bar and bookmarks so only the web page shows.</li>
             <li><b>Boss key</b> to show/hide instantly. All shortcuts are customizable in Settings.</li>
             <li><b>Follows the IDE</b> — hides on minimize / when the IDE isn't focused; links open in place.</li>
         </ul>
@@ -23,7 +24,8 @@
         一边写代码一边看，老板来了一键隐藏。
         <ul>
             <li><b>两种形态</b>：可拖动的浮窗，或只盖住当前编辑区的「背景」，一个快捷键互转。</li>
-            <li><b>网页 / 代码切换</b>：一键在「用网页」和「写代码」间切；代码模式下窗口变暗、鼠标穿透到编辑器（仅 Windows）。</li>
+            <li><b>网页 / 代码切换</b>：一键在「用网页」和「写代码」间切；代码模式下鼠标穿透到编辑器（可选变暗，默认关；仅 Windows）。</li>
+            <li><b>沉浸模式</b>：一个快捷键隐藏工具栏/地址栏/书签，只看网页本身。</li>
             <li><b>老板键</b>一键隐藏；所有快捷键都能在设置里自定义。</li>
             <li><b>跟随 IDE</b>：最小化 / 失焦自动隐藏；链接原地打开。</li>
         </ul>
@@ -32,6 +34,14 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <b>1.2.0</b>
+        <ul>
+            <li><b>Zen / immersive mode</b> — one hotkey (default Ctrl+Alt+Shift+`) hides the toolbar, address bar and bookmarks so only the web page shows; press again to restore (also the toolbar's “沉浸” button / Tools menu). 沉浸模式：一个快捷键（默认 Ctrl+Alt+Shift+`）只看网页，隐藏工具栏/地址栏/书签，再按还原（也有工具栏「沉浸」按钮 / 工具菜单）。</li>
+            <li><b>Loading indicator</b> — a spinner plus a thin top progress bar appear the instant you press Enter/Go (and stay visible in Zen mode), so a slow page no longer feels frozen. 载入特效：一按回车/Go 立刻出现转圈 + 顶部细加载条（沉浸模式下也显示），慢页面不再像卡住。</li>
+            <li><b>Optional code-mode dimming</b> — switching Web⇄Code no longer changes brightness by default; re-enable dimming in Settings if you want it. 代码模式明暗可控：默认切换 网页⇄代码 不再变暗，需要的话在设置里开启。</li>
+            <li><b>HTTP login prompt</b> — sites behind HTTP Basic auth (e.g. self-hosted SillyTavern) now show a proper username/password dialog instead of a blank window. HTTP 登录框：HTTP Basic 认证的站点（如自建 SillyTavern）现在会弹出正常的用户名/密码框，不再是空白窗口。</li>
+            <li><b>Fix</b> — keystrokes no longer leak into the code editor when the floating window overlaps it. 修复：浮窗压在代码上时，键盘输入不再跑到后面的编辑器。</li>
+        </ul>
         <b>1.1.0</b>
         <ul>
             <li><b>Background auto-fits the editor</b> — it now follows your editor pane as you resize the IDE, toggle tool windows, or split editors. 背景自动跟随当前编辑器（拉伸 IDE / 开关工具窗 / 分屏都会重贴）。</li>
@@ -76,6 +86,10 @@
                     class="com.moyu.fishbrowser.actions.ToggleBackgroundAction"
                     text="浮窗 ⇄ 背景"
                     description="把浮窗最小化为背景（盖住代码编辑区），或从背景还原为浮窗"/>
+            <action id="FishBrowser.ToggleChrome"
+                    class="com.moyu.fishbrowser.actions.ToggleChromeAction"
+                    text="沉浸模式：只看网页（隐藏工具栏）"
+                    description="隐藏 / 显示地址栏等工具栏，只保留网页本身"/>
             <action id="FishBrowser.Settings"
                     class="com.moyu.fishbrowser.actions.OpenSettingsAction"
                     text="设置…（含自定义快捷键）"

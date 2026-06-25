@@ -40,8 +40,11 @@ public final class FishBrowserSettings implements PersistentStateComponent<FishB
     /** Opacity used in WEB mode (interactive), percent 10..100. */
     public int opacity = 88;
 
-    /** Opacity used in CODE mode (click-through), percent 10..100. */
+    /** Opacity used in CODE mode (click-through), percent 10..100. Only applied when {@link #dimInCodeMode}. */
     public int codeModeOpacity = 35;
+
+    /** Dim the window when switching to CODE interaction. Off (default) = keep the WEB opacity, no flash. */
+    public boolean dimInCodeMode = false;
 
     /** Opacity used in 背景(COVER) mode while it sits as a backdrop, percent 10..100. */
     public int coverOpacity = 50;
@@ -57,6 +60,9 @@ public final class FishBrowserSettings implements PersistentStateComponent<FishB
 
     /** Auto-hide the overlay when the IDE is not the foreground app (switched away / minimized). */
     public boolean hideWhenIdeInactive = true;
+
+    /** Zen / immersive: hide the toolbar (address bar, bookmarks…) and show only the web page. */
+    public boolean hideChrome = false;
 
     // Floating-window bounds; -1 means "not set yet".
     public int winX = -1;
@@ -77,6 +83,9 @@ public final class FishBrowserSettings implements PersistentStateComponent<FishB
     /** 老板键 显示/隐藏. Default Ctrl+Shift+` */
     public int keyBossCode = KeyEvent.VK_BACK_QUOTE;
     public int keyBossMods = InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK;
+    /** 沉浸模式：隐藏工具栏，只看网页. Default Ctrl+Alt+Shift+` */
+    public int keyZenCode = KeyEvent.VK_BACK_QUOTE;
+    public int keyZenMods = InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK;
 
     public static FishBrowserSettings getInstance() {
         return ApplicationManager.getApplication().getService(FishBrowserSettings.class);

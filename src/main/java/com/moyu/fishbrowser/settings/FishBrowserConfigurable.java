@@ -38,6 +38,7 @@ public final class FishBrowserConfigurable implements Configurable {
     private final JSpinner codeOpacitySpinner = spinner(10, 100, 1);
     private final JSpinner coverOpacitySpinner = spinner(10, 100, 1);
     private final JSpinner zoomSpinner = spinner(25, 300, 5);
+    private final JBCheckBox dimInCodeModeCb = new JBCheckBox("切换到「代码」交互时变暗（默认关：透明度保持不变，只切换鼠标穿透）");
     private final JBCheckBox hideWhenInactiveCb = new JBCheckBox("IDE 不在前台时自动隐藏（切到别的程序/最小化时藏起，回到 IDE 再出现）");
     private final JBCheckBox alwaysOnTopCb = new JBCheckBox("全局置顶（钉在所有窗口最前；关掉则只盖住 IDE）");
     private final JBCheckBox rememberBoundsCb = new JBCheckBox("记住浮窗的位置和大小");
@@ -45,6 +46,7 @@ public final class FishBrowserConfigurable implements Configurable {
     private final ShortcutField interactKey = new ShortcutField();
     private final ShortcutField backgroundKey = new ShortcutField();
     private final ShortcutField bossKey = new ShortcutField();
+    private final ShortcutField zenKey = new ShortcutField();
 
     private JPanel panel;
 
@@ -76,7 +78,8 @@ public final class FishBrowserConfigurable implements Configurable {
                 .addLabeledComponent("主页网址", homeUrlField)
                 .addLabeledComponent("地址栏搜索引擎", searchEngineCombo)
                 .addLabeledComponent("网页模式透明度 %", opacitySpinner)
-                .addLabeledComponent("浮窗·代码模式透明度 %（穿透时）", codeOpacitySpinner)
+                .addComponent(dimInCodeModeCb)
+                .addLabeledComponent("　↳ 代码模式透明度 %（仅勾选上面时生效）", codeOpacitySpinner)
                 .addLabeledComponent("背景模式透明度 %", coverOpacitySpinner)
                 .addLabeledComponent("页面缩放 %", zoomSpinner)
                 .addSeparator()
@@ -88,6 +91,7 @@ public final class FishBrowserConfigurable implements Configurable {
                 .addLabeledComponent("切换交互：网页 / 代码", interactKey)
                 .addLabeledComponent("浮窗 ⇄ 背景", backgroundKey)
                 .addLabeledComponent("显示 / 隐藏（老板键）", bossKey)
+                .addLabeledComponent("沉浸模式：只看网页（隐藏工具栏）", zenKey)
                 .addComponent(resetPanel)
                 .addComponentFillVertically(new JPanel(), 0)
                 .getPanel();
@@ -100,6 +104,8 @@ public final class FishBrowserConfigurable implements Configurable {
         interactKey.setShortcut(KeyEvent.VK_BACK_QUOTE, InputEvent.CTRL_DOWN_MASK);
         backgroundKey.setShortcut(KeyEvent.VK_BACK_QUOTE, InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK);
         bossKey.setShortcut(KeyEvent.VK_BACK_QUOTE, InputEvent.CTRL_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK);
+        zenKey.setShortcut(KeyEvent.VK_BACK_QUOTE,
+                InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK | InputEvent.SHIFT_DOWN_MASK);
     }
 
     private DisplayMode selectedMode() {
@@ -131,6 +137,7 @@ public final class FishBrowserConfigurable implements Configurable {
                 || !engineValue().equals(s.searchEngine)
                 || intValue(opacitySpinner) != s.opacity
                 || intValue(codeOpacitySpinner) != s.codeModeOpacity
+                || dimInCodeModeCb.isSelected() != s.dimInCodeMode
                 || intValue(coverOpacitySpinner) != s.coverOpacity
                 || intValue(zoomSpinner) != s.zoomPercent
                 || hideWhenInactiveCb.isSelected() != s.hideWhenIdeInactive
@@ -141,7 +148,9 @@ public final class FishBrowserConfigurable implements Configurable {
                 || backgroundKey.getKeyCodeValue() != s.keyBackgroundCode
                 || backgroundKey.getModifiersValue() != s.keyBackgroundMods
                 || bossKey.getKeyCodeValue() != s.keyBossCode
-                || bossKey.getModifiersValue() != s.keyBossMods;
+                || bossKey.getModifiersValue() != s.keyBossMods
+                || zenKey.getKeyCodeValue() != s.keyZenCode
+                || zenKey.getModifiersValue() != s.keyZenMods;
     }
 
     @Override
@@ -155,6 +164,7 @@ public final class FishBrowserConfigurable implements Configurable {
         s.searchEngine = engineValue();
         s.opacity = intValue(opacitySpinner);
         s.codeModeOpacity = intValue(codeOpacitySpinner);
+        s.dimInCodeMode = dimInCodeModeCb.isSelected();
         s.coverOpacity = intValue(coverOpacitySpinner);
         s.zoomPercent = intValue(zoomSpinner);
         s.hideWhenIdeInactive = hideWhenInactiveCb.isSelected();
@@ -166,6 +176,8 @@ public final class FishBrowserConfigurable implements Configurable {
         s.keyBackgroundMods = backgroundKey.getModifiersValue();
         s.keyBossCode = bossKey.getKeyCodeValue();
         s.keyBossMods = bossKey.getModifiersValue();
+        s.keyZenCode = zenKey.getKeyCodeValue();
+        s.keyZenMods = zenKey.getModifiersValue();
         // Re-apply presentation so a mode/opacity change takes effect immediately.
         FishBrowserService.getInstance().applyDisplayMode();
         FishBrowserService.getInstance().refreshZoom();
@@ -179,6 +191,7 @@ public final class FishBrowserConfigurable implements Configurable {
         searchEngineCombo.setSelectedItem(s.searchEngine);
         opacitySpinner.setValue(s.opacity);
         codeOpacitySpinner.setValue(s.codeModeOpacity);
+        dimInCodeModeCb.setSelected(s.dimInCodeMode);
         coverOpacitySpinner.setValue(s.coverOpacity);
         zoomSpinner.setValue(s.zoomPercent);
         hideWhenInactiveCb.setSelected(s.hideWhenIdeInactive);
@@ -187,5 +200,6 @@ public final class FishBrowserConfigurable implements Configurable {
         interactKey.setShortcut(s.keyInteractCode, s.keyInteractMods);
         backgroundKey.setShortcut(s.keyBackgroundCode, s.keyBackgroundMods);
         bossKey.setShortcut(s.keyBossCode, s.keyBossMods);
+        zenKey.setShortcut(s.keyZenCode, s.keyZenMods);
     }
 }

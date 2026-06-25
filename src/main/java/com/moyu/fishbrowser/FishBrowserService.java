@@ -216,6 +216,21 @@ public final class FishBrowserService implements Disposable {
         });
     }
 
+    /** 沉浸模式：隐藏/显示工具栏（只看网页）。Creates/activates the overlay if needed. */
+    public void toggleChrome() {
+        onEdt(() -> {
+            FishBrowserOverlay o = getOrCreateOverlay();
+            if (o == null) {
+                return;
+            }
+            if (!active) {
+                active = true;
+                applyCurrentMode();
+            }
+            o.toggleChrome();
+        });
+    }
+
     /** Open the settings page. Hides the overlay first so the (modal) dialog isn't behind it. */
     public void openSettings(Project project) {
         onEdt(() -> {

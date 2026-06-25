@@ -42,6 +42,8 @@ final class GlobalHotkeys {
                 service.toggleFloatingBackground();
             } else if (code == s.keyBossCode && mods == s.keyBossMods) {
                 service.toggleVisible();
+            } else if (code == s.keyZenCode && mods == s.keyZenMods) {
+                service.toggleChrome();
             } else {
                 return false;
             }

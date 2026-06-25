@@ -4,12 +4,19 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.ui.jcef.JBCefBrowser;
+import com.intellij.util.ui.AsyncProcessIcon;
 import com.moyu.fishbrowser.win.Win32ClickThrough;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
+import org.cef.callback.CefAuthCallback;
 import org.cef.handler.CefDisplayHandlerAdapter;
 import org.cef.handler.CefLifeSpanHandlerAdapter;
 import org.cef.handler.CefLoadHandlerAdapter;
+import org.cef.handler.CefRequestHandlerAdapter;
+import org.cef.handler.CefResourceRequestHandler;
+import org.cef.handler.CefResourceRequestHandlerAdapter;
+import org.cef.misc.BoolRef;
+import org.cef.network.CefRequest;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -17,7 +24,10 @@ import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPasswordField;
+import javax.swing.JProgressBar;
 import javax.swing.JSlider;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
@@ -32,6 +42,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
+import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Point;
 import java.awt.Rectangle;
@@ -41,6 +52,8 @@ import java.awt.event.AWTEventListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 /**
  * The browser window (off-screen-rendered JCEF so window opacity applies to the web content).
@@ -72,15 +85,45 @@ final class FishBrowserOverlay {
     private final JButton backButton = new JButton("◀");
     private final JButton forwardButton = new JButton("▶");
     private final JButton reloadButton = new JButton("⟳");
+    private final JButton zenButton = new JButton();
     private final JLabel zoomLabel = new JLabel();
     private final JPanel bookmarkBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
     private final JSlider opacitySlider;
 
+    /** Thin indeterminate bar at the very top + a spinner by the address bar, shown while a page loads. */
+    private final JProgressBar progressBar = new JProgressBar();
+    private final AsyncProcessIcon pageSpinner = new AsyncProcessIcon("FishBrowserLoading");
+
+    private JComponent toolbar;
+    private JComponent resizeBar;
+    private boolean chromeHidden;
+
     private Mode mode;
     private boolean cover;
     private boolean loading;
-    private String currentTitle = "";
+    private volatile String currentTitle = "";
     private AWTEventListener wheelListener;
+    private AWTEventListener mouseFocusListener;
+    /** HTTP-auth challenges awaiting Continue/cancel; tracked so teardown can release the native request. */
+    private final java.util.Set<CefAuthCallback> pendingAuth = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** host -> "Basic xxx" Authorization header, injected on every request to that host (401 fallback path). */
+    private final java.util.Map<String, String> basicAuthHeaders = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Hosts currently showing a 401 prompt, so duplicate dialogs don't stack. */
+    private final java.util.Set<String> authPromptInFlight = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** Shared handler that stamps the stored Authorization header onto outgoing requests to known hosts. */
+    private final CefResourceRequestHandler authResourceHandler = new CefResourceRequestHandlerAdapter() {
+        @Override
+        public boolean onBeforeResourceLoad(CefBrowser b, CefFrame frame, CefRequest request) {
+            if (request != null) {
+                String host = hostOf(request.getURL());
+                String header = (host == null) ? null : basicAuthHeaders.get(host);
+                if (header != null) {
+                    request.setHeaderByName("Authorization", header, true);
+                }
+            }
+            return false;
+        }
+    };
 
     FishBrowserOverlay(FishBrowserService parent) {
         this.service = parent;
@@ -99,9 +142,16 @@ final class FishBrowserOverlay {
 
         opacitySlider = new JSlider(10, 100, FishBrowserSettings.clampOpacity(settings.opacity));
 
-        root.add(buildToolbar(), BorderLayout.NORTH);
+        toolbar = buildToolbar();
+        resizeBar = buildResizeBar();
+        // Progress bar lives ABOVE the (hideable) toolbar, so the loading strip still shows in Zen mode.
+        JPanel north = new JPanel(new BorderLayout());
+        north.setOpaque(false);
+        north.add(progressBar, BorderLayout.NORTH);
+        north.add(toolbar, BorderLayout.CENTER);
+        root.add(north, BorderLayout.NORTH);
         root.add(browser.getComponent(), BorderLayout.CENTER);
-        root.add(buildResizeBar(), BorderLayout.SOUTH);
+        root.add(resizeBar, BorderLayout.SOUTH);
         applyBorder();
 
         window.setContentPane(root);
@@ -130,7 +180,7 @@ final class FishBrowserOverlay {
             @Override
             public boolean onBeforePopup(CefBrowser b, CefFrame frame, String targetUrl, String targetFrameName) {
                 if (targetUrl != null && !targetUrl.isBlank()) {
-                    ApplicationManager.getApplication().invokeLater(() -> browser.loadURL(targetUrl));
+                    ApplicationManager.getApplication().invokeLater(() -> load(targetUrl));
                 }
                 return true; // cancel the popup window
             }
@@ -145,6 +195,17 @@ final class FishBrowserOverlay {
                 } catch (Throwable ignore) {
                     // ignored
                 }
+                // Fallback for HTTP auth NOT surfaced via getAuthCredentials: a 401 main-frame page means the
+                // server wants Basic credentials — prompt once, then reload with the Authorization header injected.
+                // (Only 401/Basic: 407 proxy auth needs Proxy-Authorization, and Digest/NTLM aren't a static header.)
+                if (httpStatusCode == 401 && frame != null && frame.isMain()) {
+                    String url = frame.getURL();
+                    String host = hostOf(url);
+                    LOG.info("[FishBrowser] HTTP " + httpStatusCode + " on " + host + " — prompting for credentials");
+                    if (host != null && authPromptInFlight.add(host)) {
+                        ApplicationManager.getApplication().invokeLater(() -> promptBasicAuth(host, url));
+                    }
+                }
             }
 
             @Override
@@ -153,14 +214,55 @@ final class FishBrowserOverlay {
             }
         }, browser.getCefBrowser());
 
-        updateModeButton();
-        updatePinButton();
-        updateMinButton();
-        updateZoomLabel();
-        updateNavState(false, false, false);
-        applyOpacity(currentModeOpacity());
-        installZoomWheel();
-        rebuildBookmarkBar();
+        // HTTP Basic/Digest auth (e.g. SillyTavern login): show our own prompt instead of CEF's
+        // hidden OSR dialog, then hand the typed credentials back to Chromium via the callback.
+        browser.getJBCefClient().addRequestHandler(new CefRequestHandlerAdapter() {
+            @Override
+            public boolean getAuthCredentials(CefBrowser b, String originUrl, boolean isProxy,
+                                              String host, int port, String realm, String scheme,
+                                              CefAuthCallback callback) {
+                pendingAuth.add(callback);
+                ApplicationManager.getApplication().invokeLater(
+                        () -> promptAuth(host, port, realm, isProxy, callback));
+                return true; // credentials are delivered asynchronously via the callback
+            }
+
+            @Override
+            public CefResourceRequestHandler getResourceRequestHandler(CefBrowser b, CefFrame frame,
+                    CefRequest request, boolean isNavigation, boolean isDownload, String requestInitiator,
+                    BoolRef disableDefaultHandling) {
+                String host = hostOf(request != null ? request.getURL() : null);
+                return (host != null && basicAuthHeaders.containsKey(host)) ? authResourceHandler : null;
+            }
+        }, browser.getCefBrowser());
+
+        try {
+            updateModeButton();
+            updatePinButton();
+            updateMinButton();
+            updateZoomLabel();
+            updateNavState(false, false, false);
+            applyOpacity(currentModeOpacity());
+            installZoomWheel();
+            installFocusGrab();
+            rebuildBookmarkBar();
+            setChromeHidden(settings.hideChrome);
+        } catch (Throwable t) {
+            // Never leak the global AWT listeners / CEF browser / dialog if late construction fails.
+            removeAwtListeners();
+            try {
+                pageSpinner.dispose();
+            } catch (Throwable ignore) {
+                // ignored
+            }
+            try {
+                browser.dispose();
+            } catch (Throwable ignore) {
+                // ignored
+            }
+            window.dispose();
+            throw (t instanceof RuntimeException) ? (RuntimeException) t : new RuntimeException(t);
+        }
     }
 
     /** The IDE frame this overlay is owned by is still alive (false → the project window was closed). */
@@ -237,11 +339,62 @@ final class FishBrowserOverlay {
         setMode(mode == Mode.WEB ? Mode.CODE : Mode.WEB);
     }
 
+    /** Zen / immersive: hide the toolbar &amp; resize grip so only the web page shows (or restore them). */
+    void toggleChrome() {
+        setChromeHidden(!chromeHidden);
+    }
+
+    void setChromeHidden(boolean hidden) {
+        chromeHidden = hidden;
+        settings.hideChrome = hidden;
+        if (toolbar != null) {
+            toolbar.setVisible(!hidden);
+        }
+        if (resizeBar != null) {
+            resizeBar.setVisible(!hidden);
+        }
+        updateZenButton();
+        root.revalidate();
+        root.repaint();
+        forceBrowserRerender();
+    }
+
+    /**
+     * The off-screen-rendered JCEF page only re-renders when its component actually changes size.
+     * Toggling the toolbar's visibility grows/shrinks the page area via {@code revalidate()}, which
+     * does NOT push a real resize through to Chromium — so the new area shows a stale/blank frame.
+     * Nudge the window size by 1px and back (two EDT cycles, so each delivers a resize event) to force
+     * a fresh render that fills the page area. Same path the resize grip already uses successfully.
+     */
+    private void forceBrowserRerender() {
+        if (!window.isVisible()) {
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            if (!window.isVisible()) {
+                return;
+            }
+            final Dimension s = window.getSize();
+            window.setSize(s.width, s.height + 1);
+            window.validate();
+            SwingUtilities.invokeLater(() -> {
+                window.setSize(s);
+                window.validate();
+            });
+        });
+    }
+
     void disposeOverlay() {
         saveBounds();
-        if (wheelListener != null) {
-            Toolkit.getDefaultToolkit().removeAWTEventListener(wheelListener);
-            wheelListener = null;
+        removeAwtListeners();
+        for (CefAuthCallback cb : new java.util.ArrayList<>(pendingAuth)) {
+            resolveAuth(cb, false, null, null); // release any HTTP-auth request paused by getAuthCredentials
+        }
+        try {
+            pageSpinner.suspend();
+            pageSpinner.dispose();
+        } catch (Throwable ignore) {
+            // ignored
         }
         try {
             browser.dispose();
@@ -251,8 +404,19 @@ final class FishBrowserOverlay {
         window.dispose();
     }
 
+    private void removeAwtListeners() {
+        if (wheelListener != null) {
+            Toolkit.getDefaultToolkit().removeAWTEventListener(wheelListener);
+            wheelListener = null;
+        }
+        if (mouseFocusListener != null) {
+            Toolkit.getDefaultToolkit().removeAWTEventListener(mouseFocusListener);
+            mouseFocusListener = null;
+        }
+    }
+
     void loadUrl(String url) {
-        browser.loadURL(url);
+        load(url);
     }
 
     // ----- mode handling -----
@@ -276,7 +440,11 @@ final class FishBrowserOverlay {
         if (cover) {
             return settings.coverOpacity;
         }
-        return mode == Mode.WEB ? settings.opacity : settings.codeModeOpacity;
+        // CODE mode only dims when the user opts in; otherwise keep the WEB opacity (no brightness flash).
+        if (mode == Mode.CODE && settings.dimInCodeMode) {
+            return settings.codeModeOpacity;
+        }
+        return settings.opacity;
     }
 
     private void applyOpacity(int pct) {
@@ -302,6 +470,7 @@ final class FishBrowserOverlay {
             if (loading) {
                 browser.getCefBrowser().stopLoad();
             } else {
+                setLoadingUi(true);
                 browser.getCefBrowser().reload();
             }
         });
@@ -312,7 +481,7 @@ final class FishBrowserOverlay {
         nav.add(backButton);
         nav.add(forwardButton);
         nav.add(reloadButton);
-        nav.add(button("⌂", "主页", e -> browser.loadURL(settings.homeUrl)));
+        nav.add(button("⌂", "主页", e -> load(settings.homeUrl)));
 
         urlField.setText(startUrl());
         urlField.setMargin(new Insets(4, 8, 4, 8));
@@ -325,8 +494,13 @@ final class FishBrowserOverlay {
             }
         });
 
+        pageSpinner.setVisible(false);
+        pageSpinner.suspend();
+        pageSpinner.setToolTipText("正在加载…");
+
         JPanel row1east = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
         row1east.setOpaque(false);
+        row1east.add(pageSpinner);
         row1east.add(button("☆", "收藏当前页", e -> addCurrentBookmark()));
         row1east.add(button("Go", "打开网址", e -> navigate()));
 
@@ -387,11 +561,16 @@ final class FishBrowserOverlay {
             updatePinButton();
         });
 
+        zenButton.setMargin(new Insets(2, 6, 2, 6));
+        zenButton.setFocusable(false);
+        zenButton.addActionListener(e -> toggleChrome());
+
         JPanel right2 = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 0));
         right2.setOpaque(false);
         right2.add(minButton);
         right2.add(modeButton);
         right2.add(pinButton);
+        right2.add(zenButton);
         right2.add(button("✕", "隐藏 (老板键)", e -> hideOverlay()));
 
         JPanel row2 = new JPanel(new BorderLayout(4, 0));
@@ -400,6 +579,12 @@ final class FishBrowserOverlay {
         row2.add(right2, BorderLayout.EAST);
 
         bookmarkBar.setOpaque(false);
+
+        progressBar.setIndeterminate(false);
+        progressBar.setVisible(false);
+        progressBar.setBorder(null);
+        progressBar.setPreferredSize(new Dimension(0, 0));
+        progressBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 0));
 
         JPanel bar = new JPanel();
         bar.setLayout(new BoxLayout(bar, BoxLayout.Y_AXIS));
@@ -461,6 +646,20 @@ final class FishBrowserOverlay {
             minButton.setText("变背景");
             minButton.setToolTipText("最小化为背景：铺满 IDE、变暗、可切鼠标穿透 (Ctrl+Alt+`)");
         }
+    }
+
+    private void updateZenButton() {
+        String hk = shortcutText(settings.keyZenCode, settings.keyZenMods);
+        zenButton.setText(chromeHidden ? "显示栏" : "沉浸");
+        zenButton.setToolTipText(chromeHidden
+                ? "显示工具栏 / 地址栏（" + hk + "）"
+                : "沉浸模式：只看网页，隐藏工具栏（" + hk + " / 工具菜单 还原）");
+    }
+
+    private static String shortcutText(int code, int mods) {
+        String m = java.awt.event.InputEvent.getModifiersExText(mods);
+        String k = java.awt.event.KeyEvent.getKeyText(code);
+        return (m == null || m.isEmpty()) ? k : m + "+" + k;
     }
 
     /** Set the web page zoom (percent); persists and updates the label. */
@@ -540,7 +739,7 @@ final class FishBrowserOverlay {
         if (text.isEmpty()) {
             return;
         }
-        browser.loadURL(toUrlOrSearch(text));
+        load(toUrlOrSearch(text));
     }
 
     /** A full URL is opened as-is; a bare domain gets https://; anything else is a search query. */
@@ -551,6 +750,94 @@ final class FishBrowserOverlay {
         boolean looksLikeUrl = !text.contains(" ")
                 && (text.startsWith("localhost") || (text.contains(".") && !text.endsWith(".")));
         return looksLikeUrl ? "https://" + text : FishBrowserSettings.searchUrl(settings.searchEngine, text);
+    }
+
+    /** getAuthCredentials path: prompt then resume (or cancel) the paused CEF request. Runs on the EDT. */
+    private void promptAuth(String host, int port, String realm, boolean isProxy, CefAuthCallback callback) {
+        if (!window.isDisplayable()) {
+            resolveAuth(callback, false, null, null); // torn down between challenge and prompt — release it
+            return;
+        }
+        String[] creds = askCredentials(host, port, realm, isProxy);
+        resolveAuth(callback, creds != null, creds != null ? creds[0] : null, creds != null ? creds[1] : null);
+    }
+
+    /** 401-fallback path: prompt, store the Authorization header for this host, then reload through it. */
+    private void promptBasicAuth(String host, String reloadUrl) {
+        try {
+            if (host == null || !window.isDisplayable()) {
+                return;
+            }
+            String[] creds = askCredentials(host, 0, null, false);
+            if (creds == null) {
+                return; // user cancelled — leave the 401 page as-is
+            }
+            String token = Base64.getEncoder().encodeToString(
+                    (creds[0] + ":" + creds[1]).getBytes(StandardCharsets.UTF_8));
+            basicAuthHeaders.put(host, "Basic " + token);
+            if (reloadUrl != null && !reloadUrl.isBlank()) {
+                load(reloadUrl);
+            } else {
+                browser.getCefBrowser().reload();
+            }
+        } finally {
+            authPromptInFlight.remove(host);
+        }
+    }
+
+    /** Modal, always-on-top username/password prompt parented to the IDE frame. Returns {user, pass} or null. */
+    private String[] askCredentials(String host, int port, String realm, boolean isProxy) {
+        JTextField userField = new JTextField(18);
+        JPasswordField passField = new JPasswordField(18);
+        String where = (host == null ? "" : host) + (port > 0 ? ":" + port : "");
+        String realmText = (realm != null && !realm.isBlank()) ? "  (" + realm + ")" : "";
+        JPanel form = new JPanel(new GridLayout(0, 1, 0, 4));
+        form.add(new JLabel((isProxy ? "代理服务器 " : "") + where + " 需要登录" + realmText));
+        form.add(new JLabel("用户名"));
+        form.add(userField);
+        form.add(new JLabel("密码"));
+        form.add(passField);
+        JOptionPane pane = new JOptionPane(form, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
+        Window parent = (owner != null && owner.isShowing()) ? owner : window;
+        JDialog dlg = pane.createDialog(parent, "需要身份验证");
+        dlg.setAlwaysOnTop(true);
+        try {
+            dlg.setVisible(true); // modal — blocks until the user closes it
+        } finally {
+            dlg.dispose();
+        }
+        Object val = pane.getValue();
+        boolean ok = (val instanceof Integer) && ((Integer) val == JOptionPane.OK_OPTION);
+        return ok ? new String[]{userField.getText(), new String(passField.getPassword())} : null;
+    }
+
+    /** Lowercased host of a URL, or null if unparseable. */
+    private static String hostOf(String url) {
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        try {
+            String h = java.net.URI.create(url).getHost();
+            return (h == null || h.isBlank()) ? null : h.toLowerCase(java.util.Locale.ROOT);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** Resolve an HTTP-auth challenge at most once: Continue on OK, otherwise cancel; releases the native request. */
+    private void resolveAuth(CefAuthCallback callback, boolean proceed, String user, String pass) {
+        if (callback == null || !pendingAuth.remove(callback)) {
+            return; // already resolved (remove is the atomic once-guard), or not one of ours
+        }
+        try {
+            if (proceed) {
+                callback.Continue(user, pass);
+            } else {
+                callback.cancel();
+            }
+        } catch (Throwable t) {
+            LOG.warn("Auth callback failed", t);
+        }
     }
 
     private JButton configBtn(JButton b, String tip, java.awt.event.ActionListener al) {
@@ -565,11 +852,35 @@ final class FishBrowserOverlay {
 
     /** Update back/forward enabled state and the reload⇄stop button from a load-state change. */
     private void updateNavState(boolean isLoading, boolean canGoBack, boolean canGoForward) {
-        loading = isLoading;
+        setLoadingUi(isLoading);
         backButton.setEnabled(canGoBack);
         forwardButton.setEnabled(canGoForward);
+    }
+
+    /** Show/hide the loading indicators (thin top bar + spinner) and flip reload⇄stop. */
+    private void setLoadingUi(boolean isLoading) {
+        loading = isLoading;
         reloadButton.setText(isLoading ? "✕" : "⟳");
         reloadButton.setToolTipText(isLoading ? "停止加载" : "刷新");
+        int h = isLoading ? 3 : 0;
+        progressBar.setPreferredSize(new Dimension(0, h));
+        progressBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, h));
+        progressBar.setVisible(isLoading);
+        progressBar.setIndeterminate(isLoading);
+        pageSpinner.setVisible(isLoading);
+        if (isLoading) {
+            pageSpinner.resume();
+        } else {
+            pageSpinner.suspend();
+        }
+        root.revalidate();
+        root.repaint();
+    }
+
+    /** All navigations funnel through here so the loading indicator shows the instant you click / press Enter. */
+    private void load(String url) {
+        setLoadingUi(true);
+        browser.loadURL(url);
     }
 
     /**
@@ -600,14 +911,49 @@ final class FishBrowserOverlay {
         Toolkit.getDefaultToolkit().addAWTEventListener(wheelListener, AWTEvent.MOUSE_WHEEL_EVENT_MASK);
     }
 
+    /**
+     * Keep keyboard focus on the page when the floating window overlaps the editor. The owned dialog
+     * sometimes loses the active-window race to the IDE frame behind it, so a click on the web area would
+     * still type into the code editor. On a mouse-press inside the page, pull our window to the front,
+     * take window focus, and give Chromium keyboard focus.
+     */
+    private void installFocusGrab() {
+        mouseFocusListener = event -> {
+            if (event.getID() != MouseEvent.MOUSE_PRESSED || !window.isVisible()) {
+                return;
+            }
+            Object src = event.getSource();
+            if (!(src instanceof Component)) {
+                return;
+            }
+            Component c = (Component) src;
+            if (!SwingUtilities.isDescendingFrom(c, window)) {
+                return;
+            }
+            window.toFront();
+            if (SwingUtilities.isDescendingFrom(c, browser.getComponent())) {
+                if (!window.isFocused()) {
+                    window.requestFocus();
+                }
+                try {
+                    browser.getCefBrowser().setFocus(true);
+                } catch (Throwable ignore) {
+                    // ignored
+                }
+            }
+        };
+        Toolkit.getDefaultToolkit().addAWTEventListener(mouseFocusListener, AWTEvent.MOUSE_EVENT_MASK);
+    }
+
     private void adjustOpacityBy(int delta) {
         if (cover) {
             settings.coverOpacity = FishBrowserSettings.clampOpacity(settings.coverOpacity + delta);
-        } else if (mode == Mode.WEB) {
+        } else if (mode == Mode.CODE && settings.dimInCodeMode) {
+            settings.codeModeOpacity = FishBrowserSettings.clampOpacity(settings.codeModeOpacity + delta);
+        } else {
+            // WEB, or CODE without dimming — both display settings.opacity (see currentModeOpacity()).
             settings.opacity = FishBrowserSettings.clampOpacity(settings.opacity + delta);
             opacitySlider.setValue(settings.opacity);
-        } else {
-            settings.codeModeOpacity = FishBrowserSettings.clampOpacity(settings.codeModeOpacity + delta);
         }
         applyOpacity(currentModeOpacity());
     }
@@ -624,7 +970,7 @@ final class FishBrowserOverlay {
             b.setMargin(new Insets(1, 6, 1, 6));
             b.setFocusable(false);
             b.setToolTipText("<html>" + escapeHtml(url) + "<br>左键打开 · 右键删除</html>");
-            b.addActionListener(e -> browser.loadURL(url));
+            b.addActionListener(e -> load(url));
             b.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
